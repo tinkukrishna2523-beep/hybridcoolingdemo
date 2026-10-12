@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hybrid cooling data center: 3D model and simulation</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&display=swap">
+<style>
+:root{--bg:#eaf1f0;--panel:#fff;--ink:#12212b;--mut:#5b6e78;--line:#cbd9d7;--water:#0e8f8a;--air:#2f7fc1;--hot:#d9582b;--ok:#2a9468;--floor:#dfe9e7;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d171d;--panel:#15232c;--ink:#e3eef0;--mut:#93a8b1;--line:#27404c;--floor:#1a2c36}}
+:root[data-theme="dark"]{--bg:#0d171d;--panel:#15232c;--ink:#e3eef0;--mut:#93a8b1;--line:#27404c;--floor:#1a2c36}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Figtree,system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.45}
+header{padding:18px 20px 8px;max-width:1280px;margin:0 auto}
+h1{font-size:clamp(20px,3vw,28px);margin:0 0 4px;font-weight:700;letter-spacing:-.01em}
+header p{margin:0;color:var(--mut);max-width:70ch;font-size:15px}
+main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;padding:10px 20px 24px;max-width:1280px;margin:0 auto}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+.stage{position:relative;height:66vh;min-height:380px;border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden;touch-action:none;cursor:grab}
+.stage:active{cursor:grabbing}canvas{display:block}
+.lab{position:absolute;left:0;top:0;transform:translate(-50%,-100%);font-size:12px;font-weight:600;padding:2px 7px;border-radius:5px;background:var(--panel);color:var(--ink);border:1px solid var(--line);white-space:nowrap;cursor:pointer;opacity:.95}
+.lab:hover,.lab.on{border-color:var(--water);color:var(--water)}
+.hint{position:absolute;left:10px;bottom:8px;font-size:12px;color:var(--mut);pointer-events:none}
+aside{display:flex;flex-direction:column;gap:12px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.box h2{margin:0 0 8px;font-size:15px}
+.modes{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+button{font:inherit;font-size:13px;padding:7px 8px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+button.on{background:var(--water);border-color:var(--water);color:#fff}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--water);outline-offset:2px}
+label{display:flex;justify-content:space-between;font-size:13px;margin-top:8px}
+input[type=range]{width:100%;accent-color:var(--water)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}
+.m span{display:block;font-size:12px;color:var(--mut)}.m b{font-size:19px}
+.tag{display:inline-block;padding:2px 9px;border-radius:99px;font-size:13px;font-weight:600;color:#fff;background:var(--ok)}
+#info{font-size:14px;min-height:64px}#info b{display:block;margin-bottom:2px}
+.note{font-size:12px;color:var(--mut)}
+.row{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+canvas#spark{width:100%;height:70px}
+</style>
+</head>
+<body>
+<header>
+<h1>Hybrid air and water cooling: 3D model and live simulation</h1>
+<p>Air cooling runs by default. Water cooling starts only when the controller expects the room to get too warm. Drag to rotate, scroll to zoom, and click any label to learn what the part does.</p>
+</header>
+<main>
+<div class="stage" id="stage"><div class="hint">Drag to rotate. Scroll to zoom.</div></div>
+<aside>
+<div class="box"><h2>Cooling strategy</h2>
+<div class="modes" id="modes">
+<button data-m="pred" class="on">Hybrid, predictive</button><button data-m="react">Hybrid, reactive</button>
+<button data-m="water">Traditional water-only</button><button data-m="air">Air only</button></div>
+<label>IT load <b id="lv"></b></label><input type="range" id="load" min="20" max="105" value="55">
+<label>Outside temperature <b id="av"></b></label><input type="range" id="amb" min="15" max="34" value="26">
+<label>Speed <b id="sv"></b></label><input type="range" id="spd" min="1" max="30" value="10">
+<div class="row"><button id="burst">Add a 15-minute load burst</button><button id="reset">Reset</button><button id="labtog" class="on">Labels</button></div></div>
+<div class="box"><h2>Live readings</h2>
+<div class="grid">
+<div class="m"><span>Room temperature</span><b id="t"></b></div><div class="m"><span>Forecast, 5 min ahead</span><b id="fc"></b></div>
+<div class="m"><span>Cooling mode</span><div id="mode" class="tag"></div></div><div class="m"><span>Time of day</span><b id="clk"></b></div>
+<div class="m"><span>Water used</span><b id="w"></b></div><div class="m"><span>Water-only would use</span><b id="tw"></b></div>
+<div class="m"><span>Water saved</span><b id="sv2"></b></div><div class="m"><span>Cooling electricity</span><b id="en"></b></div>
+<div class="m"><span>Minutes above 35 °C</span><b id="vi"></b></div></div>
+<canvas id="spark" width="300" height="70"></canvas><div class="note">Room temperature over the last 4 hours. Dashed line: 35 °C limit.</div></div>
+<div class="box" id="info"><b>Select a label</b>Click any label in the 3D view to see what that part does.</div>
+<div class="note">Educational model of the proposed design. It uses the simplified thermal and water equations from the paper with assumed values (6 MJ/K room capacity, 60 kW water stage, 3-minute water start-up lag). The forecast here is an idealised model-based estimate, not the Random Forest. These are not measurements of a real data center.</div>
+</aside>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const P={C:6e6,ka:1e4,Qmax:6e4,tau:3,lim:35,hfg:2.26e6,copa:10,cope:12};
+let MODE='pred',S;
+function reset(){S={T:+$('amb').value+$('load').value*1000/P.ka,frac:0,cmd:0,timer:99,water:0,trad:0,en:0,viol:0,min:360,hist:[],burst:0,fc:0,Qe:0,load:+$('load').value}}
+function forecast(T,f,cmd,load,amb){let t=T;for(let i=0;i<5;i++){f+=(1-Math.exp(-1/P.tau))*(cmd-f);t+=(load*1000-Math.max(0,P.ka*(t-amb))-P.Qmax*f)*60/P.C}return t}
+function step(){
+ const load=+$('load').value+(S.burst>0?20:0);if(S.burst>0)S.burst--;const amb=+$('amb').value;
+ S.fc=forecast(S.T,S.frac,S.cmd,load,amb);S.load=load;let want=S.cmd;
+ if(MODE==='air')want=0;else if(MODE==='water')want=1;
+ else{const sig=MODE==='pred'?S.fc:S.T;if(S.cmd===0&&sig>34)want=1;else if(S.cmd===1&&sig<33&&S.timer>=5)want=0}
+ if(want!==S.cmd){S.cmd=want;S.timer=0}else S.timer++;
+ let Qe,Qa;
+ if(MODE==='water'){S.frac=1;Qe=load*1000;Qa=0;S.T=28}
+ else{S.frac+=(1-Math.exp(-1/P.tau))*(S.cmd-S.frac);Qe=P.Qmax*S.frac;Qa=Math.max(0,P.ka*(S.T-amb));S.T+=(load*1000-Qa-Qe)*60/P.C}
+ S.Qe=Qe;S.water+=Qe*60/P.hfg;S.trad+=load*1000*60/P.hfg;S.en+=(Qa/P.copa+Qe/P.cope)*60/3.6e6;
+ if(S.T>P.lim)S.viol++;S.min=(S.min+1)%1440;S.hist.push(S.T);if(S.hist.length>240)S.hist.shift()}
+function waterOn(){return MODE==='water'||S.cmd===1}
+// ---------- 3D scene ----------
+const stage=$('stage'),R=new THREE.WebGLRenderer({antialias:true,alpha:true});R.setPixelRatio(Math.min(devicePixelRatio,2));stage.appendChild(R.domElement);
+const sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(45,1,.1,200);
+sc.add(new THREE.AmbientLight(0xffffff,.75));const dl=new THREE.DirectionalLight(0xffffff,.65);dl.position.set(8,16,10);sc.add(dl);
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const M=(c,o={})=>new THREE.MeshLambertMaterial(Object.assign({color:c},o));
+function box(w,h,d,c,x,y,z,o){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),M(c,o));m.position.set(x,y,z);sc.add(m);return m}
+function cyl(r,h,c,x,y,z,rot){const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,20),M(c));m.position.set(x,y,z);if(rot)m.rotation.set(...rot);sc.add(m);return m}
+const floor=box(30,.1,22,0xdfe9e7,2,-.05,-1);
+function theme(){floor.material.color.set(css('--floor'))}theme();matchMedia('(prefers-color-scheme: dark)').addEventListener('change',theme);
+const edges=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(17.4,3.6,9)),new THREE.LineBasicMaterial({color:0x7a8f99}));edges.position.set(2.5,1.8,0);sc.add(edges);
+const ret=box(16,.12,7,0xd9582b,2.5,3.35,0,{transparent:true,opacity:.28});
+box(16,.04,2.4,0x2f7fc1,2.5,.03,0,{transparent:true,opacity:.35});
+// racks
+const racks=[];const podX=[-2.5,2.2,6.9];
+podX.forEach(px=>[-1.9,1.9].forEach(z=>{for(let i=0;i<4;i++){const m=box(.85,2.1,1,0x4a90c8,px-1.425+i*.95,1.05,z);m.userData.off=(Math.random()-.5)*1.2;racks.push(m)}}));
+[[-2.5],[2.2],[6.9]].forEach(([px])=>[-1.4,1.4].forEach(z=>{const s=new THREE.Mesh(new THREE.SphereGeometry(.1,10,10),M(0xf5c518));s.position.set(px-1.4,2.25,z);sc.add(s)}));
+// air handling unit, coil, water side
+box(2,2.4,3.2,0x8a9ba5,-8.2,1.2,0);const fan=new THREE.Group();[0,1].forEach(i=>{const b=new THREE.Mesh(new THREE.BoxGeometry(1.4,.05,.18),M(0x2c3e48));b.rotation.y=i*Math.PI/2;fan.add(b)});fan.position.set(-8.2,2.45,0);sc.add(fan);
+box(.5,2.2,3.2,0x0e8f8a,-6.7,1.1,0);
+const evap=box(3,2.6,2.6,0xb9c6cc,-6.7,1.3,-7);const efan=new THREE.Group();[0,1,2].forEach(i=>{const b=new THREE.Mesh(new THREE.BoxGeometry(1.8,.05,.2),M(0x2c3e48));b.rotation.y=i*Math.PI/3;efan.add(b)});efan.position.set(-6.7,2.7,-7);sc.add(efan);
+cyl(1,2.2,0x3aa6d8,-10.8,1.1,-7);
+const pipeM=[];function pipe(a,b){const v=new THREE.Vector3(...b).sub(new THREE.Vector3(...a)),m=new THREE.Mesh(new THREE.CylinderGeometry(.1,.1,v.length(),10),M(0x6f7f88));m.position.set(...a).addScaledVector(v,.5);m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),v.clone().normalize());sc.add(m);pipeM.push(m)}
+pipe([-6.9,1,-5.7],[-6.9,1,-1.6]);pipe([-6.5,.4,-5.7],[-6.5,.4,-1.6]);pipe([-9.8,.5,-7],[-8.2,.5,-7]);
+const pump=new THREE.Mesh(new THREE.SphereGeometry(.3,14,14),M(0xe0a020));pump.position.set(-6.9,1,-3.6);sc.add(pump);
+// controller, gateway, data lines
+box(2,2.4,2.2,0x34495e,13.5,1.2,-4);box(1.4,1.4,1.4,0x5d6d7e,13.5,.7,0);
+const lamp=new THREE.Mesh(new THREE.SphereGeometry(.22,14,14),new THREE.MeshBasicMaterial({color:0x2a9468}));lamp.position.set(13.5,2.6,-4);sc.add(lamp);
+function line(a,b){const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a),new THREE.Vector3(...b)]);sc.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:0xf5c518})))}
+line([-1.1,2.3,-1.4],[13.5,1.4,0]);line([2.2,2.3,1.4],[13.5,1.4,0]);line([13.5,1.4,-.7],[13.5,1.2,-3]);line([13.5,2.4,-4],[-6.9,1.2,-3.6]);
+// particles
+function pts(n,c,s){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));const p=new THREE.Points(g,new THREE.PointsMaterial({color:c,size:s,transparent:true,opacity:.9}));p.userData.n=n;p.userData.t=Array.from({length:n},()=>Math.random());p.userData.j=Array.from({length:n},()=>[Math.random(),Math.random()]);sc.add(p);return p}
+const cold=pts(110,0x4fb3ff,.17),hot=pts(110,0xff8a4c,.17),wat=pts(60,0x20d0c8,.2),stm=pts(50,0xffffff,.28);
+function setp(p,fn,dt,sp){const a=p.geometry.attributes.position.array,t=p.userData.t;for(let i=0;i<p.userData.n;i++){t[i]=(t[i]+dt*sp)%1;const v=fn(t[i],p.userData.j[i]);a[i*3]=v[0];a[i*3+1]=v[1];a[i*3+2]=v[2]}p.geometry.attributes.position.needsUpdate=true}
+// labels
+const INFO={ahu:['Air handling unit','Filters outside air and pushes it toward the server pods with variable-speed fans. This is the default cooling path and uses almost no water.'],coil:['Water-to-air coil','A heat exchanger in the supply air stream. When water assist is on, cool water passing through it lowers the air temperature before it enters the hall. The water never touches the servers.'],evap:['Evaporative cooling unit','Cools the circuit water by letting a little of it evaporate. This is the only part that uses water up, so the controller keeps it off whenever air is enough.'],tank:['Water tank and meter','Stores water and replaces what evaporates. A meter records every litre, so real savings can be measured.'],pump:['Pump and control valve','Start, stop and throttle the water flow to the coil. A low-flow standby keeps the loop ready.'],pod:['IT pod','A section of the hall with contained aisles and its own sensors, so the system can see where heat builds up.'],cold:['Cold aisle','Cool supply air reaches the front of the racks here.'],ret:['Hot air return','Warm air leaves the back of the racks, rises and returns to the air handling unit.'],sens:['Rack sensors','Measure inlet temperature, outlet temperature and power. Their readings feed the forecast.'],gate:['Edge data gateway','Collects, checks and stores sensor readings locally, so the system keeps working without an internet link.'],ctl:['Controller and AI predictor','Forecasts room temperature a few minutes ahead and picks the cooling mode. It also enforces safety limits: if a temperature passes the hard limit, water assist is forced on.']};
+const LAB=[['ahu','Air handling unit',[-8.2,2.8,0]],['coil','Water-to-air coil',[-6.7,2.5,1.3]],['evap','Evaporative unit',[-6.7,3.6,-7]],['tank','Water tank + meter',[-10.8,2.4,-7]],['pump','Pump + valve',[-6.9,1.5,-3.6]],['pod','IT pod 1',[-2.5,2.4,-1.9]],['pod','IT pod 2',[2.2,2.4,-1.9]],['pod','IT pod 3',[6.9,2.4,-1.9]],['cold','Cold aisle',[2.2,.4,0]],['ret','Hot air return',[2.2,3.6,0]],['sens','Rack sensors',[-1.1,2.6,1.4]],['gate','Edge gateway',[13.5,1.7,0]],['ctl','Controller + AI predictor',[13.5,2.9,-4]]];
+const labs=LAB.map(([k,t,p])=>{const d=document.createElement('div');d.className='lab';d.textContent=t;d.onclick=e=>{e.stopPropagation();document.querySelectorAll('.lab').forEach(x=>x.classList.remove('on'));d.classList.add('on');$('info').innerHTML='<b>'+(k==='pod'?t:INFO[k][0])+'</b>'+INFO[k][1]};stage.appendChild(d);return{d,p:new THREE.Vector3(...p)}});
+// camera orbit
+let th=.75,ph=.95,rad=30;const tgt=new THREE.Vector3(2,1,-1);
+function cpos(){cam.position.set(tgt.x+rad*Math.sin(ph)*Math.sin(th),tgt.y+rad*Math.cos(ph),tgt.z+rad*Math.sin(ph)*Math.cos(th));cam.lookAt(tgt)}
+let drag=null;stage.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY]});addEventListener('pointerup',()=>drag=null);
+addEventListener('pointermove',e=>{if(!drag)return;th-=(e.clientX-drag[0])*.006;ph=Math.min(1.5,Math.max(.25,ph-(e.clientY-drag[1])*.006));drag=[e.clientX,e.clientY]});
+stage.addEventListener('wheel',e=>{e.preventDefault();rad=Math.min(48,Math.max(12,rad*(1+e.deltaY*.001)))},{passive:false});
+function size(){const w=stage.clientWidth,h=stage.clientHeight;R.setSize(w,h);cam.aspect=w/h;cam.updateProjectionMatrix();if(w<600)rad=Math.max(rad,38)}
+new ResizeObserver(size).observe(stage);size();
+// UI
+function heat(t){const k=Math.min(1,Math.max(0,(t-24)/12));return new THREE.Color().setHSL(.58-.58*k,.7,.5)}
+document.querySelectorAll('#modes button').forEach(b=>b.onclick=()=>{MODE=b.dataset.m;document.querySelectorAll('#modes button').forEach(x=>x.classList.toggle('on',x===b));0})
+$('burst').onclick=()=>S.burst=15;$('reset').onclick=reset;
+$('labtog').onclick=e=>{e.target.classList.toggle('on');labs.forEach(l=>l.d.style.display=e.target.classList.contains('on')?'':'none')};
+const spark=$('spark'),sx=spark.getContext('2d');
+function drawSpark(){const w=spark.width,h=spark.height;sx.clearRect(0,0,w,h);const y=t=>h-(t-20)/20*h;sx.strokeStyle=css('--hot');sx.setLineDash([4,4]);sx.beginPath();sx.moveTo(0,y(35));sx.lineTo(w,y(35));sx.stroke();sx.setLineDash([]);sx.strokeStyle=css('--water');sx.lineWidth=2;sx.beginPath();S.hist.forEach((t,i)=>{const X=i/240*w;i?sx.lineTo(X,y(t)):sx.moveTo(X,y(t))});sx.stroke()}
+function ui(){
+ $('lv').textContent=Math.round(S.load)+' kW';$('av').textContent=$('amb').value+' °C';$('sv').textContent=$('spd').value+' min/s';
+ $('t').textContent=S.T.toFixed(1)+' °C';$('fc').textContent=S.fc.toFixed(1)+' °C';
+ const hr=Math.floor(S.min/60),mi=S.min%60;$('clk').textContent=String(hr).padStart(2,'0')+':'+String(mi).padStart(2,'0');
+ let m='Air only',c='var(--ok)';
+ if(MODE==='water'){m='Water running all day';c='var(--water)'}else if(S.T>34.5){m='Hard limit: water forced';c='var(--hot)'}else if(S.cmd===1){m='Water assist';c='var(--water)'}else if(MODE!=='air'&&S.fc>33){m='Standby';c='#c98a10'}
+ $('mode').textContent=m;$('mode').style.background=c;lamp.material.color.set(c.startsWith('var')?css(c.slice(4,-1)):c);
+ $('w').textContent=S.water.toFixed(0)+' L';$('tw').textContent=S.trad.toFixed(0)+' L';
+ $('sv2').textContent=S.trad>1?Math.max(0,100*(1-S.water/S.trad)).toFixed(0)+'%':'-';
+ $('en').textContent=S.en.toFixed(1)+' kWh';$('vi').textContent=S.viol;drawSpark()}
+// loop
+reset();let last=performance.now(),acc=0;
+function frame(now){
+ const dt=Math.min(.1,(now-last)/1000);last=now;acc+=dt*$('spd').value;while(acc>=1){step();acc-=1}
+ const fs=.4+S.load/110,on=waterOn();
+ racks.forEach(r=>r.material.color.copy(heat(S.T+r.userData.off)));
+ fan.rotation.y+=dt*8*fs;efan.rotation.y+=dt*(on?10:.4);
+ setp(cold,(t,j)=>[-6.2+t*17.4,.3+j[0]*.9,-1.1+j[1]*2.2],dt,.08*fs);
+ setp(hot,(t,j)=>[11.2-t*17.4,3.0+j[0]*.3,-3.2+j[1]*6.4],dt,.08*fs);
+ wat.visible=on;stm.visible=on&&S.frac>.15;
+ setp(wat,(t,j)=>j[0]>.5?[-6.9,1,-5.7+t*4.1]:[-6.5,.4,-1.6-t*4.1],dt,.25);
+ setp(stm,(t,j)=>[-7.7+j[0]*2,2.9+t*2.4,-7.8+j[1]*2],dt,.25);
+ pipeM.forEach((p,i)=>p.material.color.set(on&&i<2?0x20b8b0:0x6f7f88));pump.material.color.set(on?0x20d0c8:0xe0a020);
+ cpos();R.render(sc,cam);
+ const w=stage.clientWidth,h=stage.clientHeight,v=new THREE.Vector3();
+ labs.forEach(l=>{v.copy(l.p).project(cam);const ok=v.z<1;l.d.style.visibility=ok?'visible':'hidden';l.d.style.left=((v.x+1)/2*w)+'px';l.d.style.top=((1-v.y)/2*h)+'px'});
+ ui();requestAnimationFrame(frame)}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
